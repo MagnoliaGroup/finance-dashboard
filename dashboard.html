@@ -184,7 +184,7 @@ nav{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:22p
     <div class="mc"><div class="mc-label">Liquid Assets</div><div class="mc-val g" id="m-liquid">$0</div></div>
     <div class="mc"><div class="mc-label">Investments</div><div class="mc-val p" id="m-invest">$0</div></div>
     <div class="mc"><div class="mc-label">Real Estate</div><div class="mc-val b" id="m-re">$0</div></div>
-    <div class="mc"><div class="mc-label">CC Debt</div><div class="mc-val r" id="m-cc">$0</div></div>
+    <div class="mc"><div class="mc-label">Mortgage Balance</div><div class="mc-val r" id="m-mortgage">$0</div></div>
     <div class="mc"><div class="mc-label">This Month Spent</div><div class="mc-val y" id="m-spent">$0</div></div>
   </div>
 
@@ -361,7 +361,9 @@ const ACCT_META = {
   'Savings':    {color:'#4f7fff', group:'liquid'},
   'IRA':        {color:'#b06bff', group:'invest'},
   '401k':       {color:'#f5c842', group:'invest'},
+  'HSA':        {color:'#00d2d3', group:'invest'},
   'Brokerage':  {color:'#ff9f43', group:'invest'},
+  'Mortgage':   {color:'#ff6b6b', group:'debt'},
   'Credit Card':{color:'#ff6b6b', group:'debt'},
   'Other':      {color:'#888',    group:'liquid'},
 };
@@ -374,11 +376,13 @@ let charts = {};
 function defaultState() {
   return {
     accounts: [
-      {id:1, name:'Chase Checking',  type:'Checking',    balance:0},
-      {id:2, name:'Chase Savings',   type:'Savings',     balance:0},
-      {id:3, name:'IRA',             type:'IRA',         balance:0},
-      {id:4, name:'401k',            type:'401k',        balance:0},
-      {id:5, name:'Chase Sapphire',  type:'Credit Card', balance:0},
+      {id:1, name:'Old National Checking', type:'Checking',    balance:0},
+      {id:2, name:'Old National Savings',  type:'Savings',     balance:0},
+      {id:3, name:'IRA',                   type:'IRA',         balance:0},
+      {id:4, name:'401k',                  type:'401k',        balance:0},
+      {id:5, name:'HSA',                   type:'HSA',         balance:0},
+      {id:6, name:'Vanguard',              type:'Brokerage',   balance:0},
+      {id:7, name:'Home Mortgage',         type:'Mortgage',    balance:0},
     ],
     monthly: MONTHS.map(()=>({income:0,tax:0,insurance:0,savings:0,expenses:Object.fromEntries(CATS.map(c=>[c,0])),transactions:[]})),
     snapshots: [],   // [{date, netWorth, accounts:{id:bal}, label}]
@@ -423,7 +427,7 @@ function render(){
   document.getElementById('m-liquid').textContent=fmt(liquid());
   document.getElementById('m-invest').textContent=fmt(invest());
   document.getElementById('m-re').textContent=fmt(re());
-  document.getElementById('m-cc').textContent=fmt(debt());
+  document.getElementById('m-mortgage').textContent=fmt(debt());
   document.getElementById('m-spent').textContent=fmt(totalExp(activeMonth));
   document.getElementById('re-disp').textContent=fmt(re());
 
@@ -698,21 +702,41 @@ async function handleFiles(files){
     const prompt=`You are a personal finance assistant. The user uploaded these files for ${MONTHS[currentMonth]} ${today.getFullYear()}.
 
 Analyze all files and extract:
-1. Transactions from any Chase CSV (date, merchant name, amount — positive=charge, negative=payment/credit)
-2. Account balances from any bank statement or screenshot (account name, balance)
+1. Transactions from any Chase credit card CSV or bank CSV (date, merchant name, amount — positive=charge/debit, negative=payment/credit/refund)
+2. Account balances from any bank statement or screenshot
 3. Paycheck info (gross pay, net pay, tax withheld)
-4. Investment balances (401k, IRA, brokerage amounts)
+4. Investment balances (401k, IRA, HSA, Vanguard amounts)
 
-For each transaction, assign ONE category from: ${CATS.join(', ')}
+The user's accounts are:
+- Old National Checking (checking account)
+- Old National Savings (savings account)
+- IRA
+- 401k
+- HSA
+- Vanguard (brokerage)
+- Home Mortgage (debt — this is the remaining balance owed)
 
-Respond ONLY with valid JSON in this exact format, no other text:
+For each transaction, assign ONE category from this list using these rules:
+- "Mortgage" → mortgage payment, HOA
+- "Food & Restaurants" → restaurants, fast food, coffee shops, groceries, DoorDash, Uber Eats, GrubHub
+- "Shopping" → Amazon, retail stores, clothing, Target, Walmart, online shopping
+- "Home Improvement" → Home Depot, Lowes, hardware stores, contractors, furniture
+- "Transportation" → gas stations, car insurance, auto repair, parking, Uber/Lyft for rides, car payment
+- "Travel" → hotels, airlines, Airbnb, vacation spending, car rental
+- "Gym" → gym membership, fitness classes, sports equipment
+- "Home Utilities" → electric, gas, water, internet, cable, phone bill, streaming services
+- "Other" → anything that doesn't fit above
+
+Ignore: credit card payments to themselves, transfers between accounts, investment contributions already counted elsewhere.
+
+Respond ONLY with valid JSON, no other text:
 {
   "transactions": [{"date":"YYYY-MM-DD","name":"merchant","amount":12.34,"category":"Food & Restaurants"}],
-  "accountBalances": [{"name":"Chase Checking","balance":5234.12}],
+  "accountBalances": [{"name":"Old National Checking","balance":5234.12}],
   "income": 0,
   "taxWithheld": 0,
   "netPay": 0,
-  "summary": "2-sentence summary of what you found"
+  "summary": "2-sentence plain English summary of what you found and applied"
 }`;
 
     content.push({type:'text',text:prompt});
