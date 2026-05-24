@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+
+<style>
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0a0a0f;
+    --bg2:       #111118;
+    --bg3:       #18181f;
+    --border:    rgba(255,255,255,0.07);
+    --border2:   rgba(255,255,255,0.13);
+    --text:      #e8e8f0;
+    --muted:     #6b6b80;
+    --accent:    #00e5a0;
+    --accent2:   #4f7fff;
+    --accent3:   #ff6b6b;
+    --accent4:   #f5c842;
+    --accent5:   #b06bff;
+    --font-head: 'Syne', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+  html { font-size: 14px; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── Layout ── */
+  #app { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  /* ── Header ── */
+  header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; }
+  .logo { font-family: var(--font-head); font-size: 11px; font-weight: 700; letter-spacing: 0.2em; color: var(--accent); text-transform: uppercase; }
+  .net-worth-block { text-align: right; }
+  .nw-label { font-size: 10px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; }
+  .nw-value { font-family: var(--font-head); font-size: 38px; font-weight: 700; letter-spacing: -0.03em; color: var(--accent); line-height: 1; margin-top: 4px; }
+  .nw-delta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .nw-delta.up { color: var(--accent); }
+  .nw-delta.down { color: var(--accent3); }
+
+  /* ── Status bar ── */
+  #status-bar {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10px; letter-spacing: 0.1em; color: var(--muted);
+    margin-bottom: 24px; padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .status-dot.live { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .status-sep { color: var(--border2); }
+
+  /* ── Connect button ── */
+  #connect-btn {
+    background: var(--accent); color: #000; border: none;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+    letter-spacing: 0.1em; padding: 8px 18px; border-radius: 3px;
+    cursor: pointer; transition: opacity 0.2s;
+  }
+  #connect-btn:hover { opacity: 0.85; }
+  #connect-btn.secondary {
+    background: transparent; color: var(--accent);
+    border: 1px solid rgba(0,229,160,0.3);
+  }
+
+  /* ── Metric cards row ── */
+  .metrics-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .metric-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px;
+    animation: fadeUp 0.4s both;
+  }
+  .metric-card:nth-child(1){animation-delay:.05s}
+  .metric-card:nth-child(2){animation-delay:.10s}
+  .metric-card:nth-child(3){animation-delay:.15s}
+  .metric-card:nth-child(4){animation-delay:.20s}
+  .metric-card:nth-child(5){animation-delay:.25s}
+  @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .metric-label { font-size: 9px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+  .metric-value { font-family: var(--font-head); font-size: 22px; font-weight: 700; }
+  .metric-value.green { color: var(--accent); }
+  .metric-value.red { color: var(--accent3); }
+  .metric-value.blue { color: var(--accent2); }
+  .metric-value.yellow { color: var(--accent4); }
+  .metric-sub { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+  /* ── Section grid ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media(max-width: 680px) { .grid-2,.grid-3 { grid-template-columns: 1fr; } }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 20px;
+    animation: fadeUp 0.5s both;
+  }
+  .panel-title {
+    font-size: 9px; letter-spacing: 0.2em; color: var(--muted);
+    text-transform: uppercase; margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-title span { color: var(--accent); }
+
+  /* ── Month selector ── */
+  .month-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+  .month-tab {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
+    padding: 4px 9px; border-radius: 3px; cursor: pointer;
+    border: 1px solid var(--border); background: none; color: var(--muted);
+    transition: all 0.15s;
+  }
+  .month-tab:hover { border-color: var(--border2); color: var(--text); }
+  .month-tab.active { background: var(--accent); color: #000; border-color: transparent; font-weight: 500; }
+
+  /* ── Chart containers ── */
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* ── Expense list ── */
+  .expense-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .expense-row:last-child { border-bottom: none; }
+  .expense-cat-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .expense-name { flex: 1; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .expense-date { color: var(--muted); font-size: 10px; white-space: nowrap; }
+  .expense-amt { color: var(--accent3); font-weight: 500; white-space: nowrap; }
+  .expense-amt.credit { color: var(--accent); }
+
+  /* ── Category bar ── */
+  .cat-row { margin-bottom: 12px; }
+  .cat-header { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px; }
+  .cat-name { color: var(--muted); }
+  .cat-amt { color: var(--text); font-weight: 500; }
+  .cat-bar-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .cat-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s cubic-bezier(.4,0,.2,1); }
+
+  /* ── Manual input fields ── */
+  .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .field label { display: block; font-size: 9px; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; margin-bottom: 5px; }
+  .field input {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-mono); font-size: 13px;
+    padding: 8px 10px; border-radius: 4px; outline: none;
+    transition: border-color 0.15s;
+  }
+  .field input:focus { border-color: var(--accent); }
+
+  /* ── Accounts list ── */
+  .account-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .account-row:last-child { border-bottom: none; }
+  .account-name { color: var(--text); }
+  .account-type { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .account-bal { font-family: var(--font-head); font-size: 16px; font-weight: 700; }
+
+  /* ── Net worth history ── */
+  .nw-year-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .nw-year-row label { font-size: 10px; color: var(--muted); width: 36px; }
+  .nw-year-row input { flex: 1; }
+
+  /* ── Real estate panel ── */
+  .re-total { font-family: var(--font-head); font-size: 28px; font-weight: 700; color: var(--accent5); margin-top: 8px; }
+
+  /* ── Tabs ── */
+  nav { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+  .nav-tab {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; padding: 10px 16px;
+    border: none; background: none; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    transition: color 0.15s;
+  }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .nav-tab:hover:not(.active) { color: var(--text); }
+
+  /* ── Setup overlay ── */
+  #setup-overlay {
+    position: fixed; inset: 0; background: rgba(10,10,15,0.95);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 20px;
+  }
+  .setup-card {
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-radius: 8px; padding: 36px; max-width: 480px; width: 100%;
+  }
+  .setup-title { font-family: var(--font-head); font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  .setup-sub { color: var(--muted); font-size: 12px; line-height: 1.7; margin-bottom: 24px; }
+  .setup-field { margin-bottom: 14px; }
+  .setup-field label { display: block; font-size: 9px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+  .setup-field input {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-mono); font-size: 13px;
+    padding: 10px 12px; border-radius: 4px; outline: none;
+  }
+  .setup-field input:focus { border-color: var(--accent); }
+  .step-num { font-size: 10px; color: var(--accent); letter-spacing: 0.1em; margin-bottom: 4px; }
+  #worker-error { color: var(--accent3); font-size: 11px; margin-top: 8px; display: none; }
+
+  /* ── Utility ── */
+  .accent { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+  button.icon-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    font-family: var(--font-mono); font-size: 10px; padding: 4px 8px;
+    border-radius: 3px; cursor: pointer; transition: all 0.15s;
+  }
+  button.icon-btn:hover { border-color: var(--border2); color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- ── SETUP OVERLAY (shown until worker URL is saved) ── -->
+<div id="setup-overlay">
+  <div class="setup-card">
+    <div class="step-num">STEP 1 OF 1</div>
+    <div class="setup-title">Connect your worker</div>
+    <div class="setup-sub">
+      Deploy the <code style="color:var(--accent);font-size:11px">backend</code> folder to Render.com (free), paste the URL below, then click Connect. Your Plaid keys never touch this page.
+      <br><br>
+      <strong style="color:var(--text)"><strong style="color:var(--text)">Don't have it yet?</strong> Follow the README setup steps — takes about 15 min.
+    </div>
+    <div class="setup-field">
+      <label>Render Backend URL</label>
+      <input id="worker-url-input" type="url" placeholder="https://finance-backend.onrender.com" />
+    </div>
+    <div id="worker-error">Could not reach worker — check the URL and try again.</div>
+    <button id="save-worker-btn" onclick="saveWorker()" style="width:100%;margin-top:8px" class="btn-primary">
+      Save & Connect →
+    </button>
+    <style>.btn-primary{background:var(--accent);color:#000;border:none;font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.1em;padding:11px 20px;border-radius:3px;cursor:pointer;transition:opacity .2s}.btn-primary:hover{opacity:.85}</style>
+  </div>
+</div>
+
+<!-- ── MAIN APP ── -->
+<div id="app" class="hidden">
+
+  <header>
+    <div>
+      <div class="logo">Finance Dashboard</div>
+      <div id="status-bar">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Disconnected</span>
+        <span class="status-sep">·</span>
+        <span id="last-sync">Never synced</span>
+        <span class="status-sep">·</span>
+        <button id="connect-btn" onclick="connectPlaid()">Connect Chase →</button>
+        <button class="icon-btn" id="sync-btn" onclick="syncData()" style="display:none">↻ Sync</button>
+      </div>
+    </div>
+    <div class="net-worth-block">
+      <div class="nw-label">Net Worth</div>
+      <div class="nw-value" id="nw-display">$0</div>
+      <div class="nw-delta" id="nw-delta">—</div>
+    </div>
+  </header>
+
+  <!-- Metric cards -->
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-label">Liquid Assets</div>
+      <div class="metric-value green" id="m-liquid">$0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">CC Balance</div>
+      <div class="metric-value red" id="m-cc">$0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">RE Equity</div>
+      <div class="metric-value" style="color:var(--accent5)" id="m-re">$0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">YTD Income</div>
+      <div class="metric-value blue" id="m-income">$0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">YTD Savings Rate</div>
+      <div class="metric-value yellow" id="m-savings-rate">—</div>
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <nav>
+    <button class="nav-tab active" onclick="showTab('overview',this)">Overview</button>
+    <button class="nav-tab" onclick="showTab('expenses',this)">Expenses</button>
+    <button class="nav-tab" onclick="showTab('accounts',this)">Accounts</button>
+    <button class="nav-tab" onclick="showTab('history',this)">History</button>
+  </nav>
+
+  <!-- ══ OVERVIEW TAB ══ -->
+  <div id="tab-overview">
+    <!-- Month selector -->
+    <div class="month-tabs" id="month-tabs"></div>
+
+    <div class="grid-3">
+      <!-- Money flow chart -->
+      <div class="panel">
+        <div class="panel-title">Money flow <span id="flow-month-label"></span></div>
+        <div class="chart-wrap" style="height:220px"><canvas id="flowChart" role="img" aria-label="Monthly money flow bar chart"></canvas></div>
+        <div id="flow-legend" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:10px;color:var(--muted)"></div>
+      </div>
+
+      <!-- Summary column -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="panel">
+          <div class="panel-title">This month</div>
+          <div id="month-summary"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Real estate equity</div>
+          <div class="field"><label>Label</label><input id="re-label" type="text" value="Real Estate Company" oninput="saveManual()"></div>
+          <div class="field" style="margin-top:8px"><label>My equity share ($)</label><input id="re-equity" type="number" min="0" placeholder="0" oninput="saveManual()"></div>
+          <div class="re-total" id="re-display">$0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Income vs expenses area chart -->
+    <div class="panel" style="margin-bottom:16px">
+      <div class="panel-title">Income vs. expenses — 12 months</div>
+      <div class="chart-wrap" style="height:180px"><canvas id="trendChart" role="img" aria-label="Income vs expenses area chart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ══ EXPENSES TAB ══ -->
+  <div id="tab-expenses" class="hidden">
+    <div class="month-tabs" id="month-tabs-exp"></div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">Category breakdown <span id="exp-month-label"></span></div>
+        <div id="cat-breakdown"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Recent transactions</div>
+        <div id="tx-list" style="max-height:440px;overflow-y:auto"></div>
+        <div id="tx-empty" style="color:var(--muted);font-size:11px;text-align:center;padding:20px 0" class="hidden">Connect Chase to see live transactions</div>
+      </div>
+    </div>
+
+    <!-- Manual expense entry -->
+    <div class="panel">
+      <div class="panel-title">Manual income & fixed costs <span id="manual-month-label"></span></div>
+      <div class="input-grid">
+        <div class="field"><label>Gross Income</label><input type="number" id="f-income" min="0" placeholder="0" oninput="saveManual()"></div>
+        <div class="field"><label>Tax Paid</label><input type="number" id="f-tax" min="0" placeholder="0" oninput="saveManual()"></div>
+        <div class="field"><label>Insurance Premiums</label><input type="number" id="f-insurance" min="0" placeholder="0" oninput="saveManual()"></div>
+        <div class="field"><label>Amount Saved</label><input type="number" id="f-savings" min="0" placeholder="0" oninput="saveManual()"></div>
+      </div>
+      <div class="panel-title" style="margin-top:8px">Manual expenses (for items not on Chase)</div>
+      <div class="input-grid" id="manual-expense-grid"></div>
+    </div>
+  </div>
+
+  <!-- ══ ACCOUNTS TAB ══ -->
+  <div id="tab-accounts" class="hidden">
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">Connected accounts</div>
+        <div id="accounts-list"><div style="color:var(--muted);font-size:11px;padding:12px 0">No accounts connected yet. Click "Connect Chase" above.</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Manual accounts</div>
+        <div id="manual-accounts-list"></div>
+        <button class="icon-btn" style="margin-top:12px" onclick="addManualAccount()">+ Add Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ HISTORY TAB ══ -->
+  <div id="tab-history" class="hidden">
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">Net worth over time</div>
+        <div class="chart-wrap" style="height:260px"><canvas id="nwChart" role="img" aria-label="Net worth history chart"></canvas></div>
+        <div id="yoy-stat" style="margin-top:14px"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Historical data entry</div>
+        <div id="nw-history-inputs"></div>
+        <button class="icon-btn" style="margin-top:10px" onclick="addHistoryYear()">+ Add Year</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end #app -->
+
+<script>
+// ══════════════════════════════════════════════
+//  CONFIG & STATE
+// ══════════════════════════════════════════════
+const STORAGE = 'fin_dash_v2';
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const CATS = ['Mortgage','Food & Restaurants','Shopping','Home Improvement','Transportation','Travel','Gym','Home Utilities','Other'];
+const CAT_COLORS = ['#4f7fff','#00e5a0','#ff6b6b','#f5c842','#b06bff','#ff9f43','#00d2d3','#a29bfe','#636e72'];
+const ACCT_TYPES = ['Checking','Savings','IRA','401k','Brokerage','Other'];
+
+let WORKER = localStorage.getItem('fin_worker_url') || '';
+
+let state = loadState();
+let activeMonth = new Date().getMonth();
+let activeTab = 'overview';
+let plaidHandler = null;
+let chartInstances = {};
+
+function defaultState() {
+  const yr = new Date().getFullYear();
+  return {
+    accessToken: null,
+    accounts: [],         // from Plaid
+    manualAccounts: [],   // user-added
+    transactions: [],     // from Plaid, enriched
+    monthlyManual: MONTHS.map(() => ({ income:0, tax:0, insurance:0, savings:0, expenses: Object.fromEntries(CATS.map(c=>[c,0])) })),
+    netWorthHistory: [{year:yr-2,value:0},{year:yr-1,value:0}],
+    realEstate: { label:'Real Estate Company', equity:0 },
+    lastSync: null,
+  };
+}
+function loadState() {
+  try { const s = localStorage.getItem(STORAGE); if(s) return {...defaultState(),...JSON.parse(s)}; } catch{}
+  return defaultState();
+}
+function saveState() { localStorage.setItem(STORAGE, JSON.stringify(state)); }
+
+// ══════════════════════════════════════════════
+//  SETUP / WORKER
+// ══════════════════════════════════════════════
+async function saveWorker() {
+  const url = document.getElementById('worker-url-input').value.trim().replace(/\/$/,'');
+  const err = document.getElementById('worker-error');
+  err.style.display = 'none';
+  if (!url) return;
+  // Quick ping
+  try {
+    const r = await fetch(url + '/accounts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({access_token:'test'}) });
+    // Any response (even error) means worker is reachable
+  } catch(e) {
+    err.style.display = 'block'; return;
+  }
+  WORKER = url;
+  localStorage.setItem('fin_worker_url', url);
+  document.getElementById('setup-overlay').style.display = 'none';
+  document.getElementById('app').classList.remove('hidden');
+  init();
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+function init() {
+  if (state.accessToken) {
+    setStatus('live','Connected to Chase');
+    document.getElementById('sync-btn').style.display = '';
+    document.getElementById('connect-btn').textContent = '✓ Chase Connected';
+    document.getElementById('connect-btn').classList.add('secondary');
+  }
+  buildMonthTabs();
+  buildManualExpenseGrid();
+  buildManualAccountsList();
+  buildHistoryInputs();
+  loadManualFields();
+  render();
+  if (state.accessToken && (!state.lastSync || Date.now() - state.lastSync > 3600000)) {
+    syncData();
+  }
+}
+
+// ══════════════════════════════════════════════
+//  PLAID
+// ══════════════════════════════════════════════
+async function connectPlaid() {
+  if (state.accessToken) { syncData(); return; }
+  const res = await workerPost('/link/token/create', {});
+  if (!res || !res.link_token) { alert('Could not create Link token. Check worker setup.'); return; }
+
+  plaidHandler = Plaid.create({
+    token: res.link_token,
+    onSuccess: async (public_token, metadata) => {
+      const ex = await workerPost('/item/public_token/exchange', { public_token });
+      if (ex && ex.access_token) {
+        state.accessToken = ex.access_token;
+        saveState();
+        document.getElementById('sync-btn').style.display = '';
+        document.getElementById('connect-btn').textContent = '✓ Chase Connected';
+        document.getElementById('connect-btn').classList.add('secondary');
+        await syncData();
+      }
+    },
+    onExit: (err) => { if(err) console.error(err); },
+  });
+  plaidHandler.open();
+}
+
+async function syncData() {
+  if (!state.accessToken) return;
+  setStatus('live','Syncing...');
+  try {
+    const [acctRes, txRes] = await Promise.all([
+      workerPost('/accounts', { access_token: state.accessToken }),
+      workerPost('/transactions', { access_token: state.accessToken }),
+    ]);
+    if (acctRes && acctRes.accounts) state.accounts = acctRes.accounts;
+    if (txRes && txRes.transactions) state.transactions = txRes.transactions;
+    state.lastSync = Date.now();
+    saveState();
+    setStatus('live','Connected to Chase');
+    document.getElementById('last-sync').textContent = 'Synced ' + new Date().toLocaleTimeString();
+    render();
+  } catch(e) {
+    setStatus(false,'Sync failed');
+  }
+}
+
+async function workerPost(path, body) {
+  try {
+    const r = await fetch(WORKER + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return r.json();
+  } catch(e) { console.error(e); return null; }
+}
+
+// ══════════════════════════════════════════════
+//  DERIVED DATA
+// ══════════════════════════════════════════════
+function txForMonth(m) {
+  return state.transactions.filter(tx => {
+    const d = new Date(tx.date);
+    return d.getMonth() === m && tx.amount > 0;
+  });
+}
+
+function expensesByCategory(txList) {
+  const map = Object.fromEntries(CATS.map(c=>[c,0]));
+  txList.forEach(tx => { if(map[tx.category] !== undefined) map[tx.category] += tx.amount; });
+  return map;
+}
+
+function monthSummary(m) {
+  const manual = state.monthlyManual[m];
+  const txs = txForMonth(m);
+  const plaidCats = expensesByCategory(txs);
+  // Merge: plaid + manual expenses
+  const merged = Object.fromEntries(CATS.map(c => [c, (plaidCats[c]||0) + (manual.expenses[c]||0)]));
+  const totalExp = Object.values(merged).reduce((a,b)=>a+b,0);
+  return {
+    income: Number(manual.income)||0,
+    tax: Number(manual.tax)||0,
+    insurance: Number(manual.insurance)||0,
+    savings: Number(manual.savings)||0,
+    totalExp,
+    cats: merged,
+    txs,
+  };
+}
+
+function computeNetWorth() {
+  const liquid = [...state.accounts, ...state.manualAccounts]
+    .filter(a => !['Credit Card'].includes(a.type || a.subtype))
+    .reduce((s,a) => s + Math.abs(Number(a.balances?.current || a.balance || 0)), 0);
+  const cc = [...state.accounts, ...state.manualAccounts]
+    .filter(a => (a.type || a.subtype) === 'Credit Card' || a.subtype === 'credit card')
+    .reduce((s,a) => s + Math.abs(Number(a.balances?.current || a.balance || 0)), 0);
+  const re = Number(state.realEstate.equity)||0;
+  return { liquid, cc, re, net: liquid - cc + re };
+}
+
+// ══════════════════════════════════════════════
+//  RENDER
+// ══════════════════════════════════════════════
+function render() {
+  const nw = computeNetWorth();
+  const histLast = state.netWorthHistory.length > 0 ? Number(state.netWorthHistory[state.netWorthHistory.length-1].value)||0 : 0;
+  const delta = nw.net - histLast;
+
+  document.getElementById('nw-display').textContent = fmt(nw.net);
+  document.getElementById('m-liquid').textContent = fmt(nw.liquid);
+  document.getElementById('m-cc').textContent = fmt(nw.cc);
+  document.getElementById('m-re').textContent = fmt(nw.re);
+
+  const ytdInc = state.monthlyManual.reduce((s,m)=>s+(Number(m.income)||0),0);
+  const ytdSav = state.monthlyManual.reduce((s,m)=>s+(Number(m.savings)||0),0);
+  document.getElementById('m-income').textContent = fmt(ytdInc);
+  document.getElementById('m-savings-rate').textContent = ytdInc > 0 ? Math.round((ytdSav/ytdInc)*100)+'%' : '—';
+
+  const deltaEl = document.getElementById('nw-delta');
+  if (histLast > 0) {
+    const pct = ((delta/histLast)*100).toFixed(1);
+    deltaEl.textContent = (delta>=0?'▲ +':'▼ ') + fmt(Math.abs(delta)) + ' (' + (delta>=0?'+':'') + pct + '%) vs last year';
+    deltaEl.className = 'nw-delta ' + (delta>=0?'up':'down');
+  } else { deltaEl.textContent = '—'; }
+
+  document.getElementById('re-display').textContent = fmt(nw.re);
+
+  renderFlowChart();
+  renderTrendChart();
+  renderMonthSummary();
+  renderCatBreakdown();
+  renderTxList();
+  renderAccounts();
+  renderNwChart();
+}
+
+function renderFlowChart() {
+  const ms = monthSummary(activeMonth);
+  const data = [
+    { label:'Savings', value: ms.savings, color:'#00e5a0' },
+    { label:'Tax', value: ms.tax, color:'#ff6b6b' },
+    { label:'Insurance', value: ms.insurance, color:'#f5c842' },
+    { label:'Expenses', value: ms.totalExp, color:'#4f7fff' },
+  ];
+  const ctx = document.getElementById('flowChart');
+  if (chartInstances.flow) chartInstances.flow.destroy();
+  chartInstances.flow = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: data.map(d=>d.label),
+      datasets:[{data:data.map(d=>d.value), backgroundColor:data.map(d=>d.color), borderRadius:3, borderSkipped:false}]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:v=>fmt(v.raw)}}},
+      scales:{
+        x:{ticks:{color:'#6b6b80',font:{family:"'DM Mono',monospace",size:11}},grid:{display:false}},
+        y:{ticks:{color:'#6b6b80',font:{family:"'DM Mono',monospace",size:10},callback:v=>'$'+(v>=1000?(v/1000).toFixed(0)+'k':v)},grid:{color:'rgba(255,255,255,0.04)'}}
+      }
+    }
+  });
+  document.getElementById('flow-month-label').textContent = MONTHS[activeMonth];
+  // Legend
+  const leg = document.getElementById('flow-legend');
+  leg.innerHTML = [{label:'Income',color:'#00e5a0',val:ms.income},...data].map(d=>
+    `<span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:${d.color};display:inline-block"></span>${d.label}: <strong style="color:#e8e8f0">${fmt(d.val)}</strong></span>`
+  ).join('');
+}
+
+function renderTrendChart() {
+  const data = MONTHS.map((m,i) => {
+    const ms = monthSummary(i);
+    return { month:m, income:ms.income, expenses:ms.totalExp+ms.tax+ms.insurance };
+  });
+  const ctx = document.getElementById('trendChart');
+  if (chartInstances.trend) chartInstances.trend.destroy();
+  chartInstances.trend = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels:data.map(d=>d.month),
+      datasets:[
+        {label:'Income',data:data.map(d=>d.income),borderColor:'#00e5a0',backgroundColor:'rgba(0,229,160,0.08)',fill:true,tension:0.4,pointRadius:3,pointBackgroundColor:'#00e5a0'},
+        {label:'Expenses',data:data.map(d=>d.expenses),borderColor:'#ff6b6b',backgroundColor:'rgba(255,107,107,0.08)',fill:true,tension:0.4,pointRadius:3,pointBackgroundColor:'#ff6b6b'},
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:v=>v.dataset.label+': '+fmt(v.raw)}}},
+      scales:{
+        x:{ticks:{color:'#6b6b80',font:{family:"'DM Mono',monospace",size:10}},grid:{color:'rgba(255,255,255,0.03)'}},
+        y:{ticks:{color:'#6b6b80',font:{family:"'DM Mono',monospace",size:10},callback:v=>'$'+(v>=1000?(v/1000).toFixed(0)+'k':v)},grid:{color:'rgba(255,255,255,0.04)'}}
+      }
+    }
+  });
+}
+
+function renderMonthSummary() {
+  const ms = monthSummary(activeMonth);
+  const net = ms.income - ms.totalExp - ms.tax - ms.insurance;
+  document.getElementById('month-summary').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${[['Income',ms.income,'#00e5a0'],['Expenses',ms.totalExp,'#ff6b6b'],['Tax',ms.tax,'#f5c842'],['Insurance',ms.insurance,'#b06bff'],['Saved',ms.savings,'#4f7fff']].map(([l,v,c])=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">
+          <span style="color:var(--muted)">${l}</span>
+          <span style="color:${c};font-weight:500">${fmt(v)}</span>
+        </div>`).join('')}
+      <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:2px;display:flex;justify-content:space-between;font-size:13px">
+        <span style="color:var(--muted)">Net</span>
+        <span style="color:${net>=0?'var(--accent)':'var(--accent3)'};font-weight:600">${fmt(net)}</span>
+      </div>
+    </div>`;
+}
+
+function renderCatBreakdown() {
+  const ms = monthSummary(activeMonth);
+  const total = ms.totalExp || 1;
+  const sorted = CATS.map((c,i)=>({name:c,val:ms.cats[c]||0,color:CAT_COLORS[i]})).sort((a,b)=>b.val-a.val);
+  document.getElementById('exp-month-label').textContent = MONTHS[activeMonth];
+  document.getElementById('manual-month-label').textContent = '— '+MONTHS[activeMonth];
+  document.getElementById('cat-breakdown').innerHTML = sorted.filter(c=>c.val>0).map(c=>`
+    <div class="cat-row">
+      <div class="cat-header">
+        <span class="cat-name" style="display:flex;align-items:center;gap:6px">
+          <span style="width:6px;height:6px;border-radius:50%;background:${c.color};display:inline-block"></span>${c.name}
+        </span>
+        <span class="cat-amt">${fmt(c.val)}</span>
+      </div>
+      <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${Math.round((c.val/total)*100)}%;background:${c.color}"></div></div>
+    </div>`).join('') || '<div style="color:var(--muted);font-size:11px;padding:8px 0">No expense data for '+MONTHS[activeMonth]+'</div>';
+}
+
+function renderTxList() {
+  const txs = txForMonth(activeMonth).sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,40);
+  const el = document.getElementById('tx-list');
+  const empty = document.getElementById('tx-empty');
+  if (!state.accessToken) { el.innerHTML=''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  el.innerHTML = txs.map((tx,i)=>{
+    const ci = CATS.indexOf(tx.category);
+    const color = ci>=0 ? CAT_COLORS[ci] : '#888';
+    return `<div class="expense-row">
+      <span class="expense-cat-dot" style="background:${color}"></span>
+      <span class="expense-name">${tx.name}</span>
+      <span class="expense-date">${tx.date.slice(5)}</span>
+      <span class="expense-amt ${tx.amount<0?'credit':''}">${tx.amount<0?'+':''}${fmt(Math.abs(tx.amount))}</span>
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:11px;padding:12px 0">No transactions this month</div>';
+}
+
+function renderAccounts() {
+  const plaidEl = document.getElementById('accounts-list');
+  if (state.accounts.length === 0) {
+    plaidEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:12px 0">No accounts connected yet. Click "Connect Chase" above.</div>';
+  } else {
+    plaidEl.innerHTML = state.accounts.map(a=>{
+      const bal = Math.abs(Number(a.balances?.current||0));
+      const isCc = a.type==='credit' || a.subtype==='credit card';
+      return `<div class="account-row">
+        <div><div class="account-name">${a.name}</div><div class="account-type">${a.subtype||a.type}</div></div>
+        <div class="account-bal" style="color:${isCc?'var(--accent3)':'var(--accent)'}">${fmt(bal)}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function renderNwChart() {
+  const hist = [...state.netWorthHistory.map(r=>({year:String(r.year),val:Number(r.value)||0})), {year:'Now',val:computeNetWorth().net}];
+  const ctx = document.getElementById('nwChart');
+  if (chartInstances.nw) chartInstances.nw.destroy();
+  chartInstances.nw = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels:hist.map(h=>h.year),
+      datasets:[{label:'Net Worth',data:hist.map(h=>h.val),borderColor:'#00e5a0',backgroundColor:'rgba(0,229,160,0.06)',fill:true,tension:0.3,pointRadius:5,pointBackgroundColor:'#00e5a0'}]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:v=>fmt(v.raw)}}},
+      scales:{
+        x:{ticks:{color:'#6b6b80',font:{family:"'DM Mono',monospace",size:11}},grid:{display:false}},
+        y:{ticks:{color:'#6b6b80',font:{family:"'DM Mono',monospace",size:10},callback:v=>'$'+(v>=1000?(v/1000).toFixed(0)+'k':v)},grid:{color:'rgba(255,255,255,0.04)'}}
+      }
+    }
+  });
+  // YOY stat
+  if (hist.length >= 2) {
+    const prev = hist[hist.length-2].val;
+    const curr = hist[hist.length-1].val;
+    const d = curr-prev;
+    const pct = prev>0?((d/prev)*100).toFixed(1):null;
+    document.getElementById('yoy-stat').innerHTML = `<div style="font-size:11px;color:var(--muted)">Year-over-year change</div><div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:700;color:${d>=0?'var(--accent)':'var(--accent3)'};">${d>=0?'+ ':'− '}${fmt(Math.abs(d))}${pct?' ('+( d>=0?'+':'')+pct+'%)':''}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════
+//  UI BUILDERS
+// ══════════════════════════════════════════════
+function buildMonthTabs() {
+  ['month-tabs','month-tabs-exp'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = MONTHS.map((m,i)=>`<button class="month-tab${i===activeMonth?' active':''}" onclick="setMonth(${i})">${m}</button>`).join('');
+  });
+}
+
+function setMonth(m) {
+  activeMonth = m;
+  buildMonthTabs();
+  loadManualFields();
+  render();
+}
+
+function buildManualExpenseGrid() {
+  document.getElementById('manual-expense-grid').innerHTML = CATS.map(c=>`
+    <div class="field"><label>${c}</label><input type="number" min="0" placeholder="0" data-cat="${c}" oninput="saveManual()"></div>`).join('');
+}
+
+function loadManualFields() {
+  const m = state.monthlyManual[activeMonth];
+  ['income','tax','insurance','savings'].forEach(f=>{ const el=document.getElementById('f-'+f); if(el) el.value=m[f]||''; });
+  document.querySelectorAll('[data-cat]').forEach(el=>{ el.value = m.expenses[el.dataset.cat]||''; });
+  document.getElementById('re-label').value = state.realEstate.label||'Real Estate Company';
+  document.getElementById('re-equity').value = state.realEstate.equity||'';
+}
+
+function saveManual() {
+  const m = state.monthlyManual[activeMonth];
+  ['income','tax','insurance','savings'].forEach(f=>{ const el=document.getElementById('f-'+f); if(el) m[f]=Number(el.value)||0; });
+  document.querySelectorAll('[data-cat]').forEach(el=>{ m.expenses[el.dataset.cat]=Number(el.value)||0; });
+  state.realEstate.label = document.getElementById('re-label').value;
+  state.realEstate.equity = Number(document.getElementById('re-equity').value)||0;
+  saveState(); render();
+}
+
+function buildManualAccountsList() {
+  const el = document.getElementById('manual-accounts-list');
+  if(!el) return;
+  el.innerHTML = state.manualAccounts.map((a,i)=>`
+    <div class="account-row">
+      <div><div class="account-name">${a.name}</div><div class="account-type">${a.type}</div></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="number" value="${a.balance}" style="width:90px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:12px;padding:4px 6px;border-radius:3px;outline:none" onchange="updateManualAcct(${i},this.value)">
+        <button class="icon-btn" onclick="removeManualAcct(${i})" style="color:var(--accent3)">✕</button>
+      </div>
+    </div>`).join('') || '<div style="color:var(--muted);font-size:11px;padding:8px 0">No manual accounts</div>';
+}
+
+function addManualAccount() {
+  const name = prompt('Account name (e.g. "Fidelity IRA"):'); if(!name) return;
+  const type = prompt('Type ('+ACCT_TYPES.join(', ')+'):')||'Other';
+  const balance = Number(prompt('Current balance:'))||0;
+  state.manualAccounts.push({name,type,balance});
+  saveState(); buildManualAccountsList(); render();
+}
+function updateManualAcct(i,v) { state.manualAccounts[i].balance=Number(v)||0; saveState(); render(); }
+function removeManualAcct(i) { state.manualAccounts.splice(i,1); saveState(); buildManualAccountsList(); render(); }
+
+function buildHistoryInputs() {
+  const el = document.getElementById('nw-history-inputs');
+  if(!el) return;
+  el.innerHTML = state.netWorthHistory.map((row,i)=>`
+    <div class="nw-year-row">
+      <label>${row.year}</label>
+      <input class="field input" type="number" value="${row.value||''}" placeholder="$0" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:13px;padding:7px 10px;border-radius:4px;outline:none;flex:1" onchange="updateNwHistory(${i},this.value)">
+      <button class="icon-btn" onclick="removeNwHistory(${i})" style="color:var(--accent3)">✕</button>
+    </div>`).join('');
+}
+
+function addHistoryYear() {
+  const last = state.netWorthHistory.length ? state.netWorthHistory[state.netWorthHistory.length-1].year : new Date().getFullYear()-1;
+  state.netWorthHistory.push({year:last+1,value:0});
+  saveState(); buildHistoryInputs(); renderNwChart();
+}
+function updateNwHistory(i,v) { state.netWorthHistory[i].value=Number(v)||0; saveState(); renderNwChart(); }
+function removeNwHistory(i) { state.netWorthHistory.splice(i,1); saveState(); buildHistoryInputs(); renderNwChart(); }
+
+// ══════════════════════════════════════════════
+//  TAB NAVIGATION
+// ══════════════════════════════════════════════
+function showTab(id, btn) {
+  ['overview','expenses','accounts','history'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('hidden', t!==id);
+  });
+  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  activeTab = id;
+  if(id==='history') renderNwChart();
+}
+
+// ══════════════════════════════════════════════
+//  STATUS
+// ══════════════════════════════════════════════
+function setStatus(live, text) {
+  document.getElementById('status-dot').className = 'status-dot' + (live?' live':'');
+  document.getElementById('status-text').textContent = text;
+}
+
+// ══════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════
+function fmt(n) {
+  return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n||0);
+}
+
+// ══════════════════════════════════════════════
+//  BOOT
+// ══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  if (WORKER) {
+    document.getElementById('setup-overlay').style.display = 'none';
+    document.getElementById('app').classList.remove('hidden');
+    init();
+  } else {
+    const saved = localStorage.getItem('fin_worker_url');
+    if (saved) {
+      WORKER = saved;
+      document.getElementById('setup-overlay').style.display = 'none';
+      document.getElementById('app').classList.remove('hidden');
+      init();
+    }
+  }
+});
+</script>
+</body>
+</html>
