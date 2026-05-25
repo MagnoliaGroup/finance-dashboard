@@ -181,11 +181,11 @@ nav{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:22p
 
   <!-- Metric strip -->
   <div class="metrics">
-    <div class="mc"><div class="mc-label">Liquid Assets</div><div class="mc-val g" id="m-liquid">$0</div></div>
-    <div class="mc"><div class="mc-label">Investments</div><div class="mc-val p" id="m-invest">$0</div></div>
-    <div class="mc"><div class="mc-label">Real Estate</div><div class="mc-val b" id="m-re">$0</div></div>
-    <div class="mc"><div class="mc-label">Mortgage Balance</div><div class="mc-val r" id="m-mortgage">$0</div></div>
+    <div class="mc"><div class="mc-label">Liquid Assets</div><div class="mc-val g" id="m-liquid">$0</div><div class="mc-sub">Checking + Savings</div></div>
+    <div class="mc"><div class="mc-label">Investment Values</div><div class="mc-val p" id="m-invest">$0</div><div class="mc-sub">IRA · 401k · HSA · Vanguard</div></div>
+    <div class="mc"><div class="mc-label">This Month Income</div><div class="mc-val g" id="m-income-cur">$0</div></div>
     <div class="mc"><div class="mc-label">This Month Spent</div><div class="mc-val y" id="m-spent">$0</div></div>
+    <div class="mc"><div class="mc-label">This Month Savings</div><div class="mc-val b" id="m-savings-cur">$0</div></div>
   </div>
 
   <nav>
@@ -210,12 +210,6 @@ nav{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:22p
           <div class="panel-title">This month</div>
           <div id="month-sum"></div>
         </div>
-        <div class="panel">
-          <div class="panel-title">Real estate equity</div>
-          <div class="field"><label>Description</label><input id="re-lbl" value="Real Estate Company" oninput="saveManual()"></div>
-          <div class="field" style="margin-top:8px"><label>My equity ($)</label><input id="re-eq" type="number" min="0" placeholder="0" oninput="saveManual()"></div>
-          <div style="font-family:var(--font-h);font-size:26px;font-weight:700;color:var(--accent5);margin-top:8px" id="re-disp">$0</div>
-        </div>
       </div>
     </div>
     <div class="panel">
@@ -226,11 +220,34 @@ nav{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:22p
 
   <!-- ══ ACCOUNTS ══ -->
   <div id="tab-accounts" class="hidden">
-    <div class="panel">
-      <div class="panel-title">Click any account to update its balance</div>
-      <div class="acct-grid" id="acct-grid"></div>
-      <button class="icon-btn" style="margin-top:14px" onclick="addAccount()">+ Add Account</button>
+
+    <!-- ASSETS -->
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-title" style="margin-bottom:18px">
+        Assets
+        <span style="font-family:var(--font-h);font-size:16px;font-weight:700;color:var(--accent)" id="total-assets-val">$0</span>
+      </div>
+
+      <div style="font-size:9px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:10px">Cash</div>
+      <div class="acct-grid" id="acct-grid-liquid" style="margin-bottom:18px"></div>
+
+      <div style="font-size:9px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:10px">Investments</div>
+      <div class="acct-grid" id="acct-grid-invest" style="margin-bottom:18px"></div>
+
+      <div style="font-size:9px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:10px">Real Estate & Business</div>
+      <div class="acct-grid" id="acct-grid-realestate"></div>
     </div>
+
+    <!-- LIABILITIES -->
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-title" style="margin-bottom:18px">
+        Liabilities
+        <span style="font-family:var(--font-h);font-size:16px;font-weight:700;color:var(--accent3)" id="total-liab-val">$0</span>
+      </div>
+      <div class="acct-grid" id="acct-grid-debt"></div>
+    </div>
+
+    <!-- Donut chart -->
     <div class="panel">
       <div class="panel-title">Net worth breakdown</div>
       <div class="chart-wrap" style="height:220px"><canvas id="bkdChart" role="img" aria-label="Net worth breakdown"></canvas></div>
@@ -363,6 +380,8 @@ const ACCT_META = {
   '401k':       {color:'#f5c842', group:'invest'},
   'HSA':        {color:'#00d2d3', group:'invest'},
   'Brokerage':  {color:'#ff9f43', group:'invest'},
+  'Home':       {color:'#a8e063', group:'realestate'},
+  'Business':   {color:'#b06bff', group:'realestate'},
   'Mortgage':   {color:'#ff6b6b', group:'debt'},
   'Credit Card':{color:'#ff6b6b', group:'debt'},
   'Other':      {color:'#888',    group:'liquid'},
@@ -382,11 +401,12 @@ function defaultState() {
       {id:4, name:'401k',                  type:'401k',        balance:0},
       {id:5, name:'HSA',                   type:'HSA',         balance:0},
       {id:6, name:'Vanguard',              type:'Brokerage',   balance:0},
-      {id:7, name:'Home Mortgage',         type:'Mortgage',    balance:0},
+      {id:7, name:'Personal Home',         type:'Home',        balance:0},
+      {id:8, name:'Magnolia Group',        type:'Business',    balance:0},
+      {id:9, name:'Personal Home Mortgage',type:'Mortgage',    balance:0},
     ],
     monthly: MONTHS.map(()=>({income:0,tax:0,insurance:0,savings:0,expenses:Object.fromEntries(CATS.map(c=>[c,0])),transactions:[]})),
-    snapshots: [],   // [{date, netWorth, accounts:{id:bal}, label}]
-    realEstate: {label:'Real Estate Company', equity:0},
+    snapshots: [],
     uploadedFiles: [],
   };
 }
@@ -402,9 +422,10 @@ function save(){localStorage.setItem(STORAGE,JSON.stringify(state));}
 // ══════════════════════════════════════
 function liquid(){return state.accounts.filter(a=>ACCT_META[a.type]?.group==='liquid').reduce((s,a)=>s+Math.abs(Number(a.balance)||0),0)}
 function invest(){return state.accounts.filter(a=>ACCT_META[a.type]?.group==='invest').reduce((s,a)=>s+Math.abs(Number(a.balance)||0),0)}
+function realEst(){return state.accounts.filter(a=>ACCT_META[a.type]?.group==='realestate').reduce((s,a)=>s+Math.abs(Number(a.balance)||0),0)}
 function debt(){return state.accounts.filter(a=>ACCT_META[a.type]?.group==='debt').reduce((s,a)=>s+Math.abs(Number(a.balance)||0),0)}
-function re(){return Number(state.realEstate.equity)||0}
-function netWorth(){return liquid()+invest()+re()-debt()}
+function totalAssets(){return liquid()+invest()+realEst()}
+function netWorth(){return totalAssets()-debt()}
 
 function monthExp(m){
   const man=state.monthly[m];
@@ -426,10 +447,9 @@ function render(){
   document.getElementById('nw-val').textContent=fmt(nw);
   document.getElementById('m-liquid').textContent=fmt(liquid());
   document.getElementById('m-invest').textContent=fmt(invest());
-  document.getElementById('m-re').textContent=fmt(re());
-  document.getElementById('m-mortgage').textContent=fmt(debt());
+  document.getElementById('m-income-cur').textContent=fmt(Number(state.monthly[activeMonth].income)||0);
   document.getElementById('m-spent').textContent=fmt(totalExp(activeMonth));
-  document.getElementById('re-disp').textContent=fmt(re());
+  document.getElementById('m-savings-cur').textContent=fmt(Number(state.monthly[activeMonth].savings)||0);
 
   // NW delta vs last snapshot
   const snaps=state.snapshots;
@@ -498,11 +518,9 @@ function renderOverview(){
 }
 
 function renderAccounts(){
-  const grid=document.getElementById('acct-grid');
-  // Get previous snapshot for delta
   const prevSnap=state.snapshots.length>0?state.snapshots[state.snapshots.length-1]:null;
 
-  grid.innerHTML=state.accounts.map(a=>{
+  function makeCard(a){
     const meta=ACCT_META[a.type]||ACCT_META['Other'];
     const bal=Math.abs(Number(a.balance)||0);
     const prevBal=prevSnap&&prevSnap.accounts?prevSnap.accounts[a.id]||0:null;
@@ -513,12 +531,25 @@ function renderAccounts(){
       <div class="acct-name">${a.name}</div>
       <div class="acct-bal" style="color:${isDebt?'#ff6b6b':meta.color}">${fmt(bal)}</div>
       <div class="acct-type">${a.type}</div>
-      ${delta!==null?`<div class="acct-delta" style="color:${delta>=0&&!isDebt||delta<=0&&isDebt?'var(--accent)':'var(--accent3)'}">${delta>=0?'+':''}${fmt(delta)} vs last snapshot</div>`:''}
+      ${delta!==null&&delta!==0?`<div class="acct-delta" style="color:${(delta>=0&&!isDebt)||(delta<=0&&isDebt)?'var(--accent)':'var(--accent3)'}">${delta>=0?'+':''}${fmt(delta)} vs last</div>`:''}
     </div>`;
-  }).join('');
+  }
 
-  // Breakdown donut
-  const bkdData=state.accounts.map(a=>({name:a.name,val:Math.abs(Number(a.balance)||0),color:(ACCT_META[a.type]||ACCT_META['Other']).color})).filter(d=>d.val>0);
+  const liquid_accts = state.accounts.filter(a=>ACCT_META[a.type]?.group==='liquid');
+  const invest_accts = state.accounts.filter(a=>ACCT_META[a.type]?.group==='invest');
+  const re_accts     = state.accounts.filter(a=>ACCT_META[a.type]?.group==='realestate');
+  const debt_accts   = state.accounts.filter(a=>ACCT_META[a.type]?.group==='debt');
+
+  document.getElementById('acct-grid-liquid').innerHTML = liquid_accts.map(makeCard).join('');
+  document.getElementById('acct-grid-invest').innerHTML = invest_accts.map(makeCard).join('');
+  document.getElementById('acct-grid-realestate').innerHTML = re_accts.map(makeCard).join('');
+  document.getElementById('acct-grid-debt').innerHTML = debt_accts.map(makeCard).join('');
+
+  document.getElementById('total-assets-val').textContent = fmt(totalAssets());
+  document.getElementById('total-liab-val').textContent = fmt(debt());
+
+  // Donut — assets only
+  const bkdData=state.accounts.filter(a=>ACCT_META[a.type]?.group!=='debt').map(a=>({name:a.name,val:Math.abs(Number(a.balance)||0),color:(ACCT_META[a.type]||ACCT_META['Other']).color})).filter(d=>d.val>0);
   const ctx=document.getElementById('bkdChart');
   if(charts.bkd)charts.bkd.destroy();
   if(bkdData.length>0){
@@ -592,13 +623,9 @@ function renderHistory(){
 
 function loadManualFields(){
   const m=state.monthly[activeMonth];
-  ['income','tax','insurance','savings'].forEach(f=>{const el=document.getElementById('f-'+f.slice(0,3));if(el)el.value=m[f]||'';});
-  // fix: map field ids
   const fmap={income:'f-income',tax:'f-tax',insurance:'f-ins',savings:'f-sav'};
   Object.entries(fmap).forEach(([k,id])=>{const el=document.getElementById(id);if(el)el.value=m[k]||'';});
   document.querySelectorAll('[data-cat]').forEach(el=>el.value=state.monthly[activeMonth].expenses[el.dataset.cat]||'');
-  document.getElementById('re-lbl').value=state.realEstate.label||'Real Estate Company';
-  document.getElementById('re-eq').value=state.realEstate.equity||'';
 }
 
 function buildManualExpGrid(){
@@ -610,8 +637,6 @@ function saveManual(){
   const fmap={income:'f-income',tax:'f-tax',insurance:'f-ins',savings:'f-sav'};
   Object.entries(fmap).forEach(([k,id])=>{const el=document.getElementById(id);if(el)m[k]=Number(el.value)||0;});
   document.querySelectorAll('[data-cat]').forEach(el=>{m.expenses[el.dataset.cat]=Number(el.value)||0;});
-  state.realEstate.label=document.getElementById('re-lbl').value;
-  state.realEstate.equity=Number(document.getElementById('re-eq').value)||0;
   save();render();
 }
 
