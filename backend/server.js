@@ -199,4 +199,34 @@ app.post('/transactions', async (req, res) => {
   }
 });
 
+// 5. Claude AI proxy — reads uploaded files and categorizes transactions
+//    Receives base64-encoded files from the dashboard, forwards to Anthropic API
+app.post('/ai/parse-files', async (req, res) => {
+  try {
+    const { messages } = req.body;
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set in Render environment variables.' });
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':         'application/json',
+        'x-api-key':            process.env.ANTHROPIC_API_KEY,
+        'anthropic-version':    '2023-06-01',
+      },
+      body: JSON.stringify({
+        model:      'claude-sonnet-4-20250514',
+        max_tokens: 4000,
+        messages,
+      }),
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => console.log(`Finance backend running on port ${PORT}`));
