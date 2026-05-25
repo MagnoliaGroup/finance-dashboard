@@ -366,8 +366,8 @@ nav{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:22p
 // ══════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════
-const ANTHROPIC_KEY_STORAGE = 'fin_api_key';
 const STORAGE = 'fin_v3';
+const RENDER_URL_KEY = 'fin_render_url';
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const CATS = ['Mortgage','Food & Restaurants','Shopping','Home Improvement','Transportation','Travel','Gym','Home Utilities','Other'];
 const CAT_COLORS = ['#4f7fff','#00e5a0','#ff6b6b','#f5c842','#b06bff','#ff9f43','#00d2d3','#a29bfe','#888'];
@@ -696,19 +696,20 @@ async function handleFiles(files){
   renderFileList(fileArr,'processing');
   showAiBar(true,'Reading your files...');
 
-  // Check for API key
-  let apiKey=localStorage.getItem(ANTHROPIC_KEY_STORAGE);
-  if(!apiKey){
-    apiKey=prompt('Enter your Anthropic API key to enable AI file reading:\n(Get one free at console.anthropic.com — starts with sk-ant-)');
-    if(!apiKey){showAiBar(false);return;}
-    localStorage.setItem(ANTHROPIC_KEY_STORAGE,apiKey);
+  // Get Render backend URL
+  let renderUrl=localStorage.getItem(RENDER_URL_KEY)||'';
+  if(!renderUrl){
+    renderUrl=prompt('Enter your Render backend URL:\n(e.g. https://finance-dashboard-backend-lpa2.onrender.com)');
+    if(!renderUrl){showAiBar(false);return;}
+    renderUrl=renderUrl.trim().replace(/\/$/,'');
+    localStorage.setItem(RENDER_URL_KEY,renderUrl);
   }
 
   try {
     // Prepare message content
     const content=[];
     for(const file of fileArr){
-      if(file.name.endsWith('.csv')){
+      if(file.name.toLowerCase().endsWith('.csv')){
         const text=await file.text();
         content.push({type:'text',text:`FILE: ${file.name}\n\`\`\`\n${text.slice(0,8000)}\n\`\`\``});
       } else if(file.type.startsWith('image/')){
@@ -724,89 +725,111 @@ async function handleFiles(files){
 
     const today=new Date();
     const currentMonth=today.getMonth();
-    const prompt=`You are a personal finance assistant. The user uploaded these files for ${MONTHS[currentMonth]} ${today.getFullYear()}.
+    const prompt=`You are a personal finance assistant. The user uploaded these files for ${today.getFullYear()}.
 
-Analyze all files and extract:
-1. Transactions from any Chase credit card CSV or bank CSV (date, merchant name, amount — positive=charge/debit, negative=payment/credit/refund)
-2. Account balances from any bank statement or screenshot
-3. Paycheck info (gross pay, net pay, tax withheld)
-4. Investment balances (401k, IRA, HSA, Vanguard amounts)
+Analyze ALL files and extract everything you can find:
+1. Transactions from any Chase credit card CSV — read ALL rows across all months (date, merchant name, amount — positive=charge/expense, negative=payment/refund). The Chase CSV covers YTD so sort each transaction into the correct month by its date.
+2. Account balances from any bank CSV or screenshot (ending/current balance)
+3. Paycheck info from pay stubs (gross pay, net pay, tax withheld) — there may be two pay stubs (Alex and Hannah), add them together for household totals
+4. Investment balances (401k, IRA, HSA, Vanguard amounts) from screenshots or PDFs
+5. Mortgage balance from any mortgage statement
 
 The user's accounts are:
-- Old National Checking (checking account)
-- Old National Savings (savings account)
+- Old National Checking
+- Old National Savings
 - IRA
 - 401k
 - HSA
-- Vanguard (brokerage)
-- Home Mortgage (debt — this is the remaining balance owed)
+- Vanguard
+- Personal Home (the home's market value if shown)
+- Personal Home Mortgage (the remaining balance owed)
 
-For each transaction, assign ONE category from this list using these rules:
-- "Mortgage" → mortgage payment, HOA
-- "Food & Restaurants" → restaurants, fast food, coffee shops, groceries, DoorDash, Uber Eats, GrubHub
-- "Shopping" → Amazon, retail stores, clothing, Target, Walmart, online shopping
-- "Home Improvement" → Home Depot, Lowes, hardware stores, contractors, furniture
-- "Transportation" → gas stations, car insurance, auto repair, parking, Uber/Lyft for rides, car payment
-- "Travel" → hotels, airlines, Airbnb, vacation spending, car rental
-- "Gym" → gym membership, fitness classes, sports equipment
-- "Home Utilities" → electric, gas, water, internet, cable, phone bill, streaming services
-- "Other" → anything that doesn't fit above
+For each transaction, assign ONE category:
+- "Mortgage" → mortgage payment, HOA fees
+- "Food & Restaurants" → restaurants, fast food, coffee, groceries, DoorDash, Uber Eats, GrubHub
+- "Shopping" → Amazon, retail, clothing, Target, Walmart, online shopping, department stores
+- "Home Improvement" → Home Depot, Lowes, hardware, contractors, furniture, appliances
+- "Transportation" → gas stations, car insurance, auto repair, parking, tolls, car payment
+- "Travel" → hotels, airlines, Airbnb, vacation, car rental, resorts
+- "Gym" → gym membership, fitness classes, sports
+- "Home Utilities" → electric, gas, water, internet, cable, phone bill, streaming (Netflix, Hulu etc)
+- "Other" → anything else
 
-Ignore: credit card payments to themselves, transfers between accounts, investment contributions already counted elsewhere.
+Ignore: credit card payments, balance transfers, account transfers.
 
-Respond ONLY with valid JSON, no other text:
+IMPORTANT: For the transactions array, include ALL transactions across all months — include the month in the date field (YYYY-MM-DD format). The dashboard will sort them into the right months automatically.
+
+Respond ONLY with valid JSON, no markdown, no extra text:
 {
-  "transactions": [{"date":"YYYY-MM-DD","name":"merchant","amount":12.34,"category":"Food & Restaurants"}],
+  "transactions": [{"date":"2026-01-15","name":"Chipotle","amount":23.45,"category":"Food & Restaurants"}],
   "accountBalances": [{"name":"Old National Checking","balance":5234.12}],
-  "income": 0,
-  "taxWithheld": 0,
-  "netPay": 0,
-  "summary": "2-sentence plain English summary of what you found and applied"
+  "monthlyIncome": {"0":0,"1":0,"2":0,"3":0,"4":0},
+  "monthlyTax": {"0":0,"1":0,"2":0,"3":0,"4":0},
+  "summary": "2-sentence summary of what you found"
 }`;
 
     content.push({type:'text',text:prompt});
+    showAiBar(true,'Sending to Claude via Render... (may take 20-30 sec for large files)');
 
-    showAiBar(true,'Analyzing with Claude AI...');
-
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+    const resp=await fetch(`${renderUrl}/ai/parse-files`,{
       method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content}]})
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({messages:[{role:'user',content}]})
     });
 
     const data=await resp.json();
-    if(data.error){throw new Error(data.error.message);}
+    if(data.error){throw new Error(data.error);}
 
     const text=data.content.find(b=>b.type==='text')?.text||'{}';
     const clean=text.replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(clean);
 
-    // Apply to state
-    let applied=[];
-
+    // Apply transactions sorted by month
+    let txCount=0;
     if(parsed.transactions?.length){
-      state.monthly[currentMonth].transactions=[...(state.monthly[currentMonth].transactions||[]),...parsed.transactions];
-      applied.push(`${parsed.transactions.length} transactions categorized`);
+      parsed.transactions.forEach(tx=>{
+        const m=new Date(tx.date).getMonth();
+        if(m>=0&&m<=11){
+          if(!state.monthly[m].transactions)state.monthly[m].transactions=[];
+          state.monthly[m].transactions.push(tx);
+          txCount++;
+        }
+      });
     }
+
+    // Apply account balances
+    let balCount=0;
     if(parsed.accountBalances?.length){
       parsed.accountBalances.forEach(ab=>{
-        const match=state.accounts.find(a=>a.name.toLowerCase().includes(ab.name.toLowerCase().split(' ')[0])||ab.name.toLowerCase().includes(a.name.toLowerCase().split(' ')[0]));
-        if(match)match.balance=ab.balance;
+        const name=ab.name.toLowerCase();
+        const match=state.accounts.find(a=>{
+          const an=a.name.toLowerCase();
+          return an.includes(name.split(' ')[0])||name.includes(an.split(' ')[0]);
+        });
+        if(match){match.balance=ab.balance;balCount++;}
       });
-      applied.push(`${parsed.accountBalances.length} account balances updated`);
     }
-    if(parsed.income){state.monthly[currentMonth].income=parsed.income;applied.push(`Income: ${fmt(parsed.income)}`);}
-    if(parsed.taxWithheld){state.monthly[currentMonth].tax=parsed.taxWithheld;applied.push(`Tax: ${fmt(parsed.taxWithheld)}`);}
 
-    saveSnapshot('Monthly upload — '+MONTHS[currentMonth]);
+    // Apply monthly income and tax if provided
+    if(parsed.monthlyIncome){
+      Object.entries(parsed.monthlyIncome).forEach(([m,v])=>{if(v>0)state.monthly[Number(m)].income=v;});
+    }
+    if(parsed.monthlyTax){
+      Object.entries(parsed.monthlyTax).forEach(([m,v])=>{if(v>0)state.monthly[Number(m)].tax=v;});
+    }
+
+    saveSnapshot('Monthly upload');
     save();render();
     renderFileList(fileArr,'done');
-    showAiBar(true,null,`✓ ${parsed.summary||'Files processed.'}\n\nApplied: ${applied.join(' · ')}`);
+    showAiBar(true,null,`✓ ${parsed.summary||'Files processed successfully.'}\n\nApplied: ${txCount} transactions across all months · ${balCount} account balances updated`);
 
   } catch(e){
-    showAiBar(true,null,'Error: '+e.message+'\n\nTip: Make sure your API key is correct. Get one at console.anthropic.com');
+    showAiBar(true,null,'Error: '+e.message+'\n\nTip: Make sure your Render backend is running (visit your Render URL in a browser first to wake it up — free tier sleeps after 15 min).');
     renderFileList(fileArr,'error');
   }
+}
+
+
 }
 
 function toBase64(file){
